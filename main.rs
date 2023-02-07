@@ -13,7 +13,7 @@ pub struct Command {
     executable: String,
     #[builder(each = "arg")]
     args: Vec<String>,
-    #[builder(each = "env")]
+    #[builder(eac = "env")]
     env: Vec<String>,
     current_dir: Option<String>,
 }

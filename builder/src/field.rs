@@ -1,5 +1,9 @@
 use proc_macro2::Ident;
-use syn::{Field, GenericArgument, Lit, Meta, MetaList, MetaNameValue, Path, PathArguments, Type};
+use quote::{ToTokens, TokenStreamExt};
+use syn::parse::Parse;
+use syn::{
+    Attribute, Error, Field, GenericArgument, LitStr, Path, PathArguments, Result, Token, Type,
+};
 
 pub(crate) enum BuilderField<'a> {
     Mandatory {
@@ -19,65 +23,79 @@ pub(crate) enum BuilderField<'a> {
     },
 }
 
-impl<'a> From<&'a Field> for BuilderField<'a> {
-    fn from(field: &'a Field) -> Self {
+impl<'a> TryFrom<&'a Field> for BuilderField<'a> {
+    type Error = Error;
+
+    fn try_from(field: &'a Field) -> Result<Self> {
         let ident = field.ident.as_ref().unwrap();
-        let each_attrs = get_each_attrs(field);
+        let each_attrs = get_each_attrs(field)?;
 
         if each_attrs.len() > 0 {
             let elem_ty = type_behind_vec(&field.ty).unwrap();
             let with_set_all = each_attrs.iter().all(|attr| attr != ident);
-            BuilderField::Multi {
+
+            Ok(BuilderField::Multi {
                 ident,
                 with_set_all,
                 attrs: each_attrs,
                 ty: &field.ty,
                 elem_ty,
-            }
+            })
         } else if let Some(ty) = type_behind_option(&field.ty) {
-            BuilderField::Optional { ident, ty }
+            Ok(BuilderField::Optional { ident, ty })
         } else {
-            BuilderField::Mandatory {
+            Ok(BuilderField::Mandatory {
                 ident,
                 ty: &field.ty,
-            }
+            })
         }
     }
 }
 
-fn get_each_attrs(field: &Field) -> Vec<Ident> {
+#[derive(Debug)]
+struct EachArg {
+    each: Ident,
+    _equals_token: Token![=],
+    alias: LitStr,
+}
+
+impl Parse for EachArg {
+    fn parse(input: syn::parse::ParseStream) -> Result<Self> {
+        let arg = EachArg {
+            each: input.parse()?,
+            _equals_token: input.parse()?,
+            alias: input.parse()?,
+        };
+
+        if arg.each.to_string() != "each" {
+            return Err(Error::new_spanned(arg.each, "expected \"each\""));
+        }
+
+        Ok(arg)
+    }
+}
+
+fn get_each_attrs(field: &Field) -> Result<Vec<Ident>> {
     field
         .attrs
         .iter()
-        .flat_map(|attr| {
+        .filter_map(|attr| {
             if !path_is_ident(&attr.path, "builder") {
-                return vec![];
+                return None;
             }
 
-            let meta = attr.parse_meta().unwrap();
-            match meta {
-                Meta::List(MetaList { nested, .. }, ..) => nested.into_iter(),
-                _ => unimplemented!(),
-            }
-            .map(|meta| match meta {
-                syn::NestedMeta::Meta(meta) => meta,
-                _ => unimplemented!(),
-            })
-            .map(|meta| match meta {
-                Meta::NameValue(MetaNameValue { path, lit, .. })
-                    if path_is_ident(&path, "each") =>
-                {
-                    lit
-                }
-                _ => unimplemented!(),
-            })
-            .collect::<Vec<_>>()
-        })
-        .map(|lit| match lit {
-            Lit::Str(ref s) => Ident::new(&s.value(), lit.span()),
-            _ => unimplemented!(),
+            Some(parse_each_attr(attr))
         })
         .collect()
+}
+
+fn parse_each_attr(attr: &Attribute) -> Result<Ident> {
+    let arg: EachArg = attr.parse_args().map_err(|_| {
+        let mut error_tokens = attr.tokens.clone();
+        error_tokens.append_all(attr.path.segments.to_token_stream());
+        Error::new_spanned(error_tokens, "expected `builder(each = \"...\")`")
+    })?;
+    Ok(Ident::new(&arg.alias.value(), arg.alias.span()))
 }
 
 fn path_is_ident(path: &Path, ident: &str) -> bool {
