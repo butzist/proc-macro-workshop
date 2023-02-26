@@ -9,7 +9,7 @@ pub(crate) fn builder_ident(input: &Input) -> Ident {
 pub(crate) fn output_builder_type(input: &Input) -> TokenStream {
     let optional_fields = input.fields.iter().map(|field| match *field {
         BuilderField::Mandatory { ident, ty } | BuilderField::Optional { ident, ty } => {
-            quote! { #ident: Option<#ty> }
+            quote! { #ident: ::std::option::Option<#ty> }
         }
         BuilderField::Multi { ident, ty, .. } => {
             quote! { #ident: #ty }
@@ -29,7 +29,7 @@ pub(crate) fn output_builder_type(input: &Input) -> TokenStream {
 pub(crate) fn output_builder_constructor(input: &Input) -> TokenStream {
     let field_initializers = input.fields.iter().map(|field| match *field {
         BuilderField::Mandatory { ident, .. } | BuilderField::Optional { ident, .. } => {
-            quote! { #ident: Option::None }
+            quote! { #ident: ::std::option::Option::None }
         }
         BuilderField::Multi { ident, .. } => {
             quote! { #ident: ::core::default::Default::default() }
@@ -58,7 +58,7 @@ pub(crate) fn output_setters(input: &Input) -> TokenStream {
         BuilderField::Mandatory { ident, ty } | BuilderField::Optional { ident, ty } => {
             Some(quote! {
                 fn #ident(&mut self, #ident: #ty) -> &mut Self {
-                    self.#ident = Some(#ident);
+                    self.#ident = ::std::option::Option::Some(#ident);
                     self
                 }
             })
@@ -123,8 +123,8 @@ pub(crate) fn output_build_method(input: &Input) -> TokenStream {
 
     quote! {
         impl #builder_ident {
-            pub fn build(&mut self) -> Result<#ident, Box<dyn std::error::Error>> {
-                Ok(#ident {
+            pub fn build(&mut self) -> ::std::result::Result<#ident, ::std::boxed::Box<dyn ::std::error::Error>> {
+                ::std::result::Result::Ok(#ident {
                     #(#build_fields),*
                 })
             }
